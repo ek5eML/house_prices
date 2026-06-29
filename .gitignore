@@ -1,0 +1,6 @@
+data
+checkpoints
+.ipynb_checkpoints
+__pycache__
+logs
+submission.csv
