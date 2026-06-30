@@ -19,16 +19,21 @@ class DNN(nn.Module):
       layers.append(nn.Linear(in_dim, hidden_dim))
       if batch_norm:
         layers.append(nn.BatchNorm1d(hidden_dim))
+
       layers.append(nn.ReLU())
+
       if dropout > 0:
         layers.append(nn.Dropout(dropout))
+
       in_dim = hidden_dim
 
     layers.append(nn.Linear(in_dim, out_dim))
+
     self.layers = nn.Sequential(*layers)
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     logits = self.layers(x)
     if logits.shape[-1] == 1:
       return logits.squeeze(-1)
+
     return logits

@@ -1,13 +1,14 @@
 # House Prices
 
+Kaggle [House Prices](https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques) project with a reproducible training pipeline.
+
 ## Setup
 
-Create a virtual environment and install dependencies from `requirements.txt`:
+Recommended: create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
 Place Kaggle data files in the `data/` directory:
@@ -23,49 +24,50 @@ Run the pipeline:
 python main.py
 ```
 
-Configure the model and run mode in `config.py` (`training_model`, `mode`).
+On startup, `main.py` quietly installs missing dependencies from `requirements.txt`.
+
+Configure the run in `config.py`:
+
+- `mode` — `train` or `fit`
+- `training_model` — model name for `train` mode
+- `models_to_evaluate` — list of models for `fit` mode
+- `model_type` — `regression` or `classification`
+- `need_scaler` — apply `StandardScaler` to features (sklearn and DNN)
+- `models_params` — hyperparameters per model
+
+EDA and experiments: `research.ipynb`.
 
 ## Workflow
 
-Set the run mode in `config.py` via `mode`. Choose the model via `training_model`.
+### `train` — cross-validation for one model
 
-### `train` — cross-validation
+- Set `mode: train` and choose a model via `training_model`.
+- Runs **KFold CV** (5 folds by default) on the full training set.
+- Writes metrics to `logs/{experiment_name}.txt`.
+- If `save_best_model: True`, updates `logs/{model}.txt` when CV score improves.
 
-- Loads the training set and runs **KFold CV** (5 folds by default) on **all** training data.
-- Computes the mean metric and std across folds, and writes the result to `logs/{experiment_name}.txt`.
-- If `save_best_model: True`, updates `logs/{model}.txt` with the best parameters (when the CV score improves).
+Checkpoints are not saved in this mode.
 
-The model is **not** saved to checkpoints in this mode.
+### `fit` — full pipeline (CV → best model → submission)
 
-### `fit` — training and saving
+Default mode. One command runs the entire flow:
 
-- Loads the training set and splits it into **train/val** (`val_size: 0.2`, i.e. 80% / 20%) — **not on the full dataset**.
-- Trains the pipeline on the train split, evaluates the metric on val, and logs to `logs/{experiment_name}.txt`.
-- Saves the trained pipeline to `checkpoints/{training_model}.joblib`.
+1. **CV** for every model in `models_to_evaluate`
+2. Optional update of `logs/{model}.txt` when `save_best_model: True`
+3. Selection of the best model by CV metric
+4. Retrain on **80%** of train (`fit.val_size: 0.2` — 20% for validation)
+5. `submission.csv` — predictions on test
+6. `result.md` — CV summary table (**Model**, **CV**, **CV STD**)
 
-### `submit` — test prediction
+Supported models: `regression`, `ridge`, `lasso`, `elasticnet`, `KNN`, `decision_tree`, `random_forest`, `catboost`, `lightgbm`, `xgboost`, `voting`, `stacking`, `DNN`.
 
-- Loads the test set.
-- Loads the saved model from `checkpoints/{training_model}.joblib` and runs `predict`.
-- Writes the output to `submission.csv`.
+## Leaderboard submissions
 
-Exception: for `xgboost`, `lightgbm`, `ensemble`, or when `rerun: True`, the model is **retrained** via `fit` before prediction (instead of loading from checkpoint).
-
-## Results
-
-| Approach            | CV        | CV STD   | LB      | Date       |
-| ------------------- | --------- | -------- | ------- | ---------- |
-| ensemble (stacking) | -0.014551 | 0.002749 | 0.12274 | 2026-06-29 |
-| ensemble (voting)   | -0.014197 | 0.002501 | 0.12311 | 2026-06-28 |
-| catboost            | -0.014496 | 0.002782 | 0.12408 | 2026-06-28 |
-| xgboost             | -0.015429 | 0.002542 | 0.12723 | 2026-06-28 |
-| lightgbm            | -0.015512 | 0.002317 | 0.12997 | 2026-06-28 |
-| elasticnet          | -0.020482 | 0.007729 | 0.13391 | 2026-06-28 |
-| ridge               | -0.020336 | 0.007526 | 0.13409 | 2026-06-27 |
-| lasso               | -0.023697 | 0.008131 | 0.13474 | 2026-06-27 |
-| random_forest       | -0.018612 | 0.002526 | 0.14010 | 2026-06-28 |
-| DNN                 | -0.019884 | 0.004727 | 0.14251 | 2026-06-28 |
-| decision_tree       | -0.034155 | 0.002154 | 0.19242 | 2026-06-28 |
-| regression          | -0.038462 | 0.017765 | 0.21016 | 2026-06-28 |
-| KNN                 | -0.045571 | 0.006306 | 0.22028 | 2026-06-27 |
-
+| Model    | CV        | CV STD   | LB      | Date       |
+| -------- | --------- | -------- | ------- | ---------- |
+| stacking | -0.014590 | 0.002726 | 0.12215 | 2026-06-30 |
+| voting   | -0.014546 | 0.002597 | 0.12378 | 2026-06-30 |
+| catboost | -0.014496 | 0.002782 | 0.12408 | 2026-06-30 |
+| xgboost  | -0.015429 | 0.002542 | 0.12723 | 2026-06-28 |
+| lightgbm | -0.015512 | 0.002317 | 0.12997 | 2026-06-28 |
+| DNN      | -0.019884 | 0.004727 | 0.14251 | 2026-06-28 |

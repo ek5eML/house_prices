@@ -6,6 +6,7 @@ import torch
 def _checkpoint_dir(config) -> Path:
   checkpoint_dir = Path(str(config.paths.path_to_checkpoints))
   checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
   return checkpoint_dir
 
 

@@ -2,7 +2,7 @@ from omegaconf import OmegaConf
 
 config = {
   'general': {
-    'experiment_name': 'DNN tuning',
+    'experiment_name': 'pipeline rework',
     'seed': 31415,
     'num_classes': 1,
   },
@@ -12,6 +12,7 @@ config = {
     'path_to_checkpoints': './checkpoints',
     'path_to_logs': './logs/${general.experiment_name}.txt',
     'path_to_submission': './submission.csv',
+    'path_to_results': './result.md',
   },
   'data': {
     'target_col': 'SalePrice',
@@ -97,8 +98,21 @@ config = {
       'verbosity': 0,
       'n_jobs': 1,
     },
-    'ensemble': {
-      'type': 'stacking',
+    'voting': {
+      'models': {
+        'regression': 0,
+        'ridge': 0,
+        'lasso': 0,
+        'elasticnet': 0,
+        'KNN': 0,
+        'decision_tree': 0,
+        'random_forest': 0,
+        'catboost': 1,
+        'lightgbm': 1,
+        'xgboost': 1,
+      },
+    },
+    'stacking': {
       'models': {
         'regression': 0,
         'ridge': 0,
@@ -124,9 +138,24 @@ config = {
       'batch_norm': True,
     },
   },
+  'models_to_evaluate': [
+    'regression',
+    'ridge',
+    'lasso',
+    'elasticnet',
+    'KNN',
+    'decision_tree',
+    'random_forest',
+    'catboost',
+    'lightgbm',
+    'xgboost',
+    'voting',
+    'stacking',
+    'DNN',
+  ],
   'training_model': 'DNN',
   'need_scaler': True,
-  'mode': 'train',
+  'mode': 'fit',
   'rerun': True,
   'logging': True,
   'save_best_model': True,

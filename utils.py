@@ -4,23 +4,20 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from sklearn.base import BaseEstimator
-from sklearn.metrics import get_scorer
+from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 from joblib import dump, load
+import torch
 
 
-def set_seed(seed: int, *, use_torch: bool = True):
+def set_seed(seed: int):
+  """Set random seeds for Python, NumPy, and PyTorch."""
   random.seed(seed)
   np.random.seed(seed)
   os.environ['PYTHONHASHSEED'] = str(seed)
-
-  if not use_torch:
-    return
-
-  import torch
 
   torch.manual_seed(seed)
 
@@ -34,6 +31,46 @@ def set_seed(seed: int, *, use_torch: bool = True):
     torch.mps.manual_seed(seed)
 
 
+def get_cv_splitter(config):
+  """Return CV depending on the model type."""
+  if config.model_type == 'regression':
+    return KFold(**config.cv)
+
+  return StratifiedKFold(**config.cv)
+
+
+def get_scaler(config) -> BaseEstimator | None:
+  """Return scaler if config.need_scaler is enabled."""
+  if config.need_scaler:
+    return StandardScaler()
+
+  return None
+
+
+def _to_float32_array(X) -> np.ndarray:
+  if hasattr(X, 'to_numpy'):
+    return X.to_numpy(dtype=np.float32)
+  return np.asarray(X, dtype=np.float32)
+
+
+def fit_scale(scaler, X) -> np.ndarray:
+  """Fit scaler on X when present, otherwise return float32 numpy array."""
+  X = _to_float32_array(X)
+  if scaler is None:
+    return X
+
+  return scaler.fit_transform(X)
+
+
+def transform_scale(scaler, X) -> np.ndarray:
+  """Transform X with fitted scaler when present, otherwise return float32 numpy."""
+  X = _to_float32_array(X)
+  if scaler is None:
+    return X
+
+  return scaler.transform(X)
+
+
 def log_run(
   config,
   model_name: str,
@@ -44,6 +81,7 @@ def log_run(
   time_s: float,
   with_header: bool = True,
 ):
+  """Append a formatted run summary to the experiment log and print it."""
   params = _normalize_params(model_params)
   timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
   log_file = _log_file(config)
@@ -116,6 +154,7 @@ def _normalize_params(model_params) -> dict:
     params = OmegaConf.to_container(model_params, resolve=True) or {}
   else:
     params = dict(model_params)
+
   return params
 
 
@@ -123,11 +162,13 @@ def _format_params_block(params: dict) -> list[str]:
   lines = ['params:']
   if not params:
     lines.append('  (default)')
+
     return lines
 
   max_key_len = max(len(str(key)) for key in params)
   for key, value in sorted(params.items()):
     lines.append(f'  {str(key):<{max_key_len}} : {value}')
+
   return lines
 
 
@@ -153,6 +194,7 @@ def save_best_model_params(
   metric_value: float,
   metric_std: float,
 ):
+  """Update logs/{model}.txt when CV score improves for the given model."""
   log_file = Path('logs') / f'{registry_name}.txt'
   log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -197,6 +239,7 @@ def save_model(
   model: BaseEstimator,
   path_to_save: str,
 ):
+  """Serialize a fitted estimator to disk with joblib."""
   Path(path_to_save).parent.mkdir(parents=True, exist_ok=True)
   dump(model, path_to_save)
 
@@ -206,12 +249,47 @@ def load_model(path_to_load: str) -> BaseEstimator:
 
 
 def transform_target(target):
+  """Apply some target transform used during training."""
   return np.log1p(target) 
 
 
 def inverse_transform_target(y_pred):
-  return np.expm1(y_pred)
+  """Invert log1p target transform for predictions."""
+  return np.expm1(np.asarray(y_pred, dtype=np.float64))
 
 
-def score_with_metric(estimator: BaseEstimator, X, y, metric_name: str) -> float:
-  return float(get_scorer(metric_name)(estimator, X, y))
+def select_best_cv_result(results: list[dict], config) -> dict:
+  """Pick the result dict with the best CV metric."""
+  best_selector = max if config.is_negative_metric else min
+  
+  return best_selector(
+    results,
+    key=lambda result: result['metric'],
+  )
+
+
+def write_result_md(results: list[dict], config) -> Path:
+  """Write a markdown table with CV results for all evaluated models."""
+  path = Path(str(config.paths.path_to_results))
+  path.parent.mkdir(parents=True, exist_ok=True)
+
+  sorted_results = sorted(
+    results,
+    key=lambda result: result['metric'],
+    reverse=config.is_negative_metric,
+  )
+
+  lines = [
+    '| Model | CV | CV STD |',
+    '| ----- | -- | ------ |',
+  ]
+  for result in sorted_results:
+    lines.append(
+      f"| {result['model_name']} | {result['metric']:.6f} | "
+      f"{result['metric_std']:.6f} |"
+    )
+
+  path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+  print(f'Results table written to {path}')
+
+  return path

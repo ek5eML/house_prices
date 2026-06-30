@@ -37,6 +37,7 @@ def train_epoch(
   optimizer: torch.optim.Optimizer,
   device: torch.device,
 ) -> float:
+  """Run one training epoch and return average batch loss."""
   model.train()
   total_loss = 0.0
 
@@ -64,6 +65,7 @@ def evaluate(
   *,
   transform_target: bool = False,
 ) -> tuple[float, float]:
+  """Evaluate model on a dataloader and return loss plus sklearn metric."""
   model.eval()
   total_loss = 0.0
   all_preds: list[np.ndarray] = []
@@ -142,6 +144,7 @@ def _restore_training_state(
   optimizer: torch.optim.Optimizer,
   scheduler: torch.optim.lr_scheduler.LRScheduler | None,
 ) -> dict:
+  """Restore model, optimizer, scheduler, and counters from a checkpoint."""
   model.load_state_dict(checkpoint['model_state_dict'])
   optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 

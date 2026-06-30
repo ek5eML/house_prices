@@ -3,8 +3,7 @@ import time
 import numpy as np
 import torch
 from omegaconf import OmegaConf
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 from objects.DataLoader import DataLoader
 from objects.FeatureTransformer import FeatureTransformer
@@ -16,10 +15,21 @@ from objects.dnn.checkpoint import (
 from objects.dnn.dataset import make_dataloader
 from objects.dnn.model import DNN
 from objects.dnn.train_loop import _get_device, fit_model
-from utils import begin_log_section, inverse_transform_target, log_run, transform_target
+from utils import (
+  begin_log_section,
+  fit_scale,
+  get_cv_splitter,
+  get_scaler,
+  inverse_transform_target,
+  log_run,
+  transform_scale,
+  transform_target,
+)
 
 
 class DNNRunner:
+  """Train, cross-validate, and predict with the PyTorch DNN."""
+
   def __init__(self, config):
     self.config = config
 
@@ -40,18 +50,20 @@ class DNNRunner:
     self,
     X_train,
     X_val,
-  ) -> tuple[np.ndarray, np.ndarray, StandardScaler, FeatureTransformer]:
+  ) -> tuple[np.ndarray, np.ndarray, object | None, FeatureTransformer]:
+    """Fit feature transformer and optionally scale train/val arrays."""
     feature_transformer = FeatureTransformer(self.config)
     X_train = feature_transformer.fit_transform(X_train)
     X_val = feature_transformer.transform(X_val)
 
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train.to_numpy(dtype=np.float32))
-    X_val = scaler.transform(X_val.to_numpy(dtype=np.float32))
+    scaler = get_scaler(self.config)
+    X_train = fit_scale(scaler, X_train)
+    X_val = transform_scale(scaler, X_val)
 
     return X_train, X_val, scaler, feature_transformer
 
   def fit_full(self, name = None, params: dict | None = None) -> dict:
+    """Train DNN on train/val split with early stopping and checkpointing."""
     params = self._get_params(params)
     start = time.perf_counter()
     last_checkpoint_path = get_last_checkpoint_path(self.config)
@@ -144,6 +156,7 @@ class DNNRunner:
     }
 
   def run_cv(self, name: str = '', params: dict | None = None) -> dict:
+    """Run manual CV by retraining the DNN on each fold."""
     params = self._get_params(params)
     data_loader = DataLoader(self.config)
     train_data = data_loader.load_train()
@@ -153,7 +166,7 @@ class DNNRunner:
     if self.config.logging:
       begin_log_section(self.config)
 
-    cv = KFold(**self.config.cv)
+    cv = get_cv_splitter(self.config)
     fold_metrics: list[float] = []
 
     start = time.perf_counter()
@@ -177,7 +190,7 @@ class DNNRunner:
         n_features=X_train.shape[1],
         hidden_dims=list(params['hidden_dims']),
         dropout=params['dropout'],
-        out_dim=1,
+        out_dim=1 if self.config.model_type == 'regression' else self.config.general.num_classes,
         batch_norm=params['batch_norm'],
       )
       fold_metric, _ = fit_model(
@@ -221,6 +234,7 @@ class DNNRunner:
     return result
 
   def predict(self, test_data) -> np.ndarray:
+    """Load best DNN checkpoint and predict on preprocessed test features."""
     checkpoint_path = get_best_checkpoint_path(self.config)
     if not checkpoint_path.exists():
       raise FileNotFoundError(f'DNN checkpoint not found: {checkpoint_path}')
@@ -236,7 +250,7 @@ class DNNRunner:
       )
 
     X = feature_transformer.transform(test_data)
-    X = scaler.transform(X.to_numpy(dtype=np.float32))
+    X = transform_scale(scaler, X)
 
     model = DNN(
       n_features=X.shape[1],
